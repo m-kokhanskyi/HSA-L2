@@ -1,0 +1,127 @@
+version: '3.7'
+services:
+  
+  hsa_l2_php_fpm_1:
+    container_name: hsa_l2_php_fpm_1
+    build:
+      context: ./docker/php_fpm/
+    working_dir: /var/www/site
+    volumes:
+      - ./application:/var/www/site
+      - ./docker/php_fpm/configs/php/xdebug.ini:/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+      - ./docker/php_fpm/configs/php/php.ini:/usr/local/etc/php/conf.d/php.ini
+    environment:
+      XDEBUG_CONFIG: "remote_enable=1 remote_host=docker.for.mac.localhost remote_port=9019 idekey=PHPSTORM"
+      PHP_IDE_CONFIG: "serverName=localhost"
+    networks:
+      hsa_l2_net:
+
+  hsa_l2_nginx_1:
+    container_name: hsa_l2_nginx_1
+    image: nginx:1.15
+    working_dir: /var/www/site
+    ports:
+      - 1922:80
+    volumes:
+      - ./application:/var/www/site
+      - ./docker/nginx/configs/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      hsa_l2_net:
+      
+  hsa_l2_mongo_1:
+    container_name: hsa_l2_mongo_1
+    build:
+      context: ./docker/mongo/
+    ports:
+    - "1933:27017"
+    environment:
+    - MONGO_INITDB_ROOT_USERNAME=root
+    - MONGO_INITDB_ROOT_PASSWORD=secret
+    volumes:
+      - hsa_l2_mongo_data_db:/data/db
+      - hsa_l2_mongo_data_config:/data/configdb
+    networks:
+      hsa_l2_net:
+
+  hsa_l2_elasticsearch_1:
+    container_name: hsa_l2_elasticsearch_1
+    build:
+      context: ./docker/elasticsearch
+    volumes:
+    - elasticsearch:/usr/share/elasticsearch/data
+    environment:
+    - cluster.name=laradock-cluster
+    - node.name=laradock-node
+    - bootstrap.memory_lock=true
+    - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    - cluster.initial_master_nodes=hsa_l2_net-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+    - "1934:9200"
+    - "1935:9300"
+    networks:
+      hsa_l2_net:
+      
+  hsa_l2_telegraf:
+    user: root
+    entrypoint: "telegraf"
+    build:
+      context: ./docker/telegraf
+    volumes:
+      - ./docker/telegraf/etc/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - hsa_l2_influxdb
+    links:
+      - hsa_l2_influxdb
+    ports:
+      - '127.0.0.1:1936:8125/udp'
+    networks:
+      hsa_l2_net:
+      
+  hsa_l2_influxdb:
+    image: influxdb:1.8-alpine
+    ports:
+      - '127.0.0.1:1937:8086'
+    environment:
+      - INFLUXDB_DB=influx
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=admin
+    volumes:
+      - ./:/imports
+      - influxdb_data:/var/lib/influxdb
+    networks:
+      hsa_l2_net:
+      
+  hsa_l2_grafana:
+    image: grafana/grafana:8.0.2
+    depends_on:
+      - hsa_l2_influxdb
+    environment:
+      - GF_SECURITY_ADMIN_USER=root
+      - GF_SECURITY_ADMIN_PASSWORD=secret
+    links:
+      - hsa_l2_influxdb
+    ports:
+      - '127.0.0.1:1938:3000'
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning/:/etc/grafana/provisioning/
+      - ./docker/grafana/dashboards/:/var/lib/grafana/dashboards/
+    networks:
+      hsa_l2_net:
+networks:
+  hsa_l2_net:
+
+volumes:
+  hsa_l2_mongo_data_db:
+  hsa_l2_mongo_data_config:
+  elasticsearch:
+  grafana_data:
+  influxdb_data:
